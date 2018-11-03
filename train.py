@@ -3,7 +3,7 @@
 
 # # all imports for training
 
-# In[23]:
+# In[1]:
 
 
 from torchvision import datasets, transforms
@@ -41,8 +41,7 @@ means = [0.485, 0.456, 0.406]
 stds = [0.229, 0.224, 0.225]
 
 # TODO: Define your transforms for the training, validation, and testing sets
-data_transforms = transforms.Compose([transforms.Resize(256),
-                                     transforms.CenterCrop(224),
+train_data_transforms = transforms.Compose([transforms.RandomResizedCrop(224),
                                      transforms.RandomHorizontalFlip(),
                                      transforms.ToTensor(),
                                      transforms.Normalize(mean=means, std=stds)])
@@ -53,31 +52,47 @@ test_data_transforms = transforms.Compose([transforms.Resize(256),
                                      transforms.ToTensor(),
                                      transforms.Normalize(mean=means, std=stds)])
 
+valid_data_transforms = transforms.Compose([transforms.Resize(256),
+                                     transforms.CenterCrop(224),
+                                     transforms.ToTensor(),
+                                     transforms.Normalize(mean=means, std=stds)])
+
+
 # TODO: Load the datasets with ImageFolder
-image_datasets = datasets.ImageFolder(train_dir, transform=data_transforms)
+train_image_datasets = datasets.ImageFolder(train_dir, transform=train_data_transforms)
 test_image_datasets = datasets.ImageFolder(train_dir, transform=test_data_transforms)
-class_to_tensoridx_dict = image_datasets.class_to_idx
+valid_image_datasets = datasets.ImageFolder(test_dir, transform=valid_data_transforms)
+class_to_tensoridx_dict = train_image_datasets.class_to_idx
 
 # TODO: Using the image datasets and the trainforms, define the dataloaders
-dataloaders = torch.utils.data.DataLoader(image_datasets, batch_size=40, shuffle=True)
+train_dataloaders = torch.utils.data.DataLoader(train_image_datasets, batch_size=40, shuffle=True)
 test_dataloaders = torch.utils.data.DataLoader(test_image_datasets, batch_size=40, shuffle=True)
+valid_dataloaders = torch.utils.data.DataLoader(valid_image_datasets, batch_size=16, shuffle=True)
+                                           
+dataloaders = {'train': train_dataloaders, 'test': test_dataloaders, 'valid': valid_dataloaders}
+                                           
 print('Great! Your test images have been transformed.')
 print('-')
 
 
 # # Questionnaire
 
-# In[4]:
+# In[11]:
 
 
 def device_validation():
-    device = input('In what device do you want to run this model, cuda or cpu? ->')
-    if device.lower() in ['cpu', 'cuda']:
-        print('Thanks! You selected to run the model using the {}.'.format(device))
-        return device
+
+    if torch.cuda.is_available():    
+        device = input('In what device do you want to run this model, cuda or cpu? ->')
+        if device.lower() in ['cpu', 'cuda']:
+            print('Thanks! You selected to run the model using the {}.'.format(device))
+            return device
+        else:
+            print('Warning! Wrong input. Choose cuda or cpu.')
+            return device_validation()
     else:
-        print('Warning! Wrong input. Choose cuda or cpu.')
-        return device_validation()
+        device = 'cpu'
+        print('Sorry! But your device does not support GPU. Note that the training will run faster with a GPU.         Please, consider changing to a device with a GPU.')
 device = device_validation()
 print('-')
 
@@ -137,25 +152,27 @@ def choose_model():
     model_selected = str(input('Which model will you choose, 1 or 2? ->'))
     if model_selected in ['1', 'densenet121']: 
         model = models.densenet121(pretrained=True)
-        input_features = model.classifier.in_features        
+        input_features = model.classifier.in_features   
+        model_name = 'densenet121'
         print('Great! You have selected the densenet121 architecture.')
         print('The model input layer is', input_features)
-        return model, input_features
+        return model, input_features, model_name
     elif model_selected in ['2', 'vgg19_bn']: 
         model = models.vgg19_bn(pretrained=True)
         input_features = model.classifier[0].in_features
+        model_name = 'vgg19_bn'
         print('Great! You have selected the vgg19_bn architecture.')
         print('The model input layer is', input_features)
-        return model, input_features
+        return model, input_features, model_name
     else:
         print('Wanring! Please select a valid architecture: 1 for densenet121 or 2 for vgg19_bn.')
         return choose_model()
 
-model, input_features = choose_model()   
+model, input_features, model_name = choose_model()   
 print('-')
 
 
-# In[10]:
+# In[9]:
 
 
 def hidden_layer_generator(hidden_layer_qty, model_input_features, hidden_layer_inputs, output_dim):
@@ -198,7 +215,7 @@ def hidden_layer_generator(hidden_layer_qty, model_input_features, hidden_layer_
     return hidden_layers
 
 
-# In[12]:
+# In[10]:
 
 
 def layer_validation():
@@ -239,7 +256,7 @@ print('-')
 
 # # Helper Clock
 
-# In[9]:
+# In[11]:
 
 
 class TickTock:
@@ -254,17 +271,27 @@ class TickTock:
         return ':'.join(str(td).split(':'))
 
 
-# # Setting Model and Saving Neural Network Sequential Arguments
-
-# In[16]:
-
-
-model_settings = {'model': model, 'sequential_arg': ordered_dict}
-with open('model_settings.pickle', 'wb') as handle:
-    pickle.dump(model_settings, handle)
-
-
 # # Training Model
+
+# In[12]:
+
+
+def validation(model, testloader, criterion):
+    test_loss = 0
+    accuracy = 0
+    for images, labels in testloader:
+
+        images, labels = images.to(device), labels.to(device)
+
+        output = model.forward(images)
+        test_loss += criterion(output, labels).item()
+
+        ps = torch.exp(output)
+        equality = (labels.data == ps.max(dim=1)[1])
+        accuracy += equality.type(torch.FloatTensor).mean()
+    
+    return test_loss, accuracy
+
 
 # In[13]:
 
@@ -283,8 +310,9 @@ optimizer = optim.Adam(model.classifier.parameters(), lr=learning_rate)
 timer = TickTock()
 
 for e in range(epochs):
+    model.train()
     running_loss = 0
-    for steps, (images, labels) in enumerate(dataloaders):
+    for steps, (images, labels) in enumerate(dataloaders['train']):
 
         # move images and labels to device selected
         images, labels = images.to(device), labels.to(device)
@@ -297,26 +325,39 @@ for e in range(epochs):
         running_loss += loss.item()
 
         if steps % print_sequence == 0:
-            print("Epoch: {}/{}... ".format(e+1, epochs),
-                 "Loss: {:.4f}".format(running_loss/print_sequence))
-            running_loss = 0
+            model.eval()
+            
+            with torch.no_grad():
+                test_loss, accuracy = validation(model, dataloaders['test'], criterion)
+            
+            
+            print("Epoch: {}/{} -|- ".format(e+1, epochs),
+                  "Train Loss: {:.4f} -|- ".format(running_loss/print_sequence),
+                  "Test Loss: {:.3f} -|- ".format(test_loss/len(dataloaders['test'])),
+                  "Test Accuracy: {:.3f}".format(accuracy/len(dataloaders['test'])))
+            running_loss = 0   
 
 time_delta = timer.stop_clock()
-print('Time to train: ', time_delta)
+print('Training time:', time_delta)
 print('-')
 
 
-# # Saving Mappings and Checkpoint
+# # Saving Checkpoint
 
 # In[14]:
 
 
-with open('class_to_tensoridx_dict.pickle', 'wb') as handle:
-    pickle.dump(class_to_tensoridx_dict, handle)
+model.class_to_idx = class_to_tensoridx_dict
+checkpoint = {'class_to_idx': model.class_to_idx, 
+              'epochs': epochs, 
+              'classifier': model.classifier, 
+              'model': model_name, 
+              'state_dict': model.state_dict(),
+              'criterion': criterion,
+              'optimizer': optimizer} 
 
-torch.save(model.state_dict(), 'checkpoint.pth')
-print('We have saved a pickle file of classes to tensor index mappings and a checkpoint of the model.')
-print('We have dump the model_settings pickle file to use in the prediciton.')
+torch.save(checkpoint, 'checkpoint.pth')
+print('Checkpoint saved with {}'.format(', '.join(list(checkpoint.keys())[:-1])+', and '+list(checkpoint.keys())[-1] ))
 print('-')
 
 
@@ -341,4 +382,10 @@ with torch.no_grad():
 print('Training is done.')
 print('Here is the accuracy of the network on test images: %d %%' %
      (100 * correct / total)) 
+
+
+# In[ ]:
+
+
+
 
