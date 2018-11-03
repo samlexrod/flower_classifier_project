@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[ ]:
+
+
+# D:\GitHub\Flower_Classifier_Project\flower_data\valid\23\image_03416.jpg
+# D:\GitHub\Flower_Classifier_Project
+
+
 # In[23]:
 
 
@@ -28,10 +35,10 @@ from matplotlib import cm
 parser = argparse.ArgumentParser()
 
 parser.add_argument('image_path', metavar='image_path', type=str, nargs='?',
-                    help='Store the name of the json file with category names of the flowers.')
+                    help='The path of the image to be loaded to the prediction model.')
 
-parser.add_argument('checkpoint_name', metavar='checkpoint_name', type=str, nargs='?',
-                    help='Store the name of the json file with category names of the flowers.')
+parser.add_argument('checkpoint_path', metavar='checkpoint_path', type=str, nargs='?',
+                    help='The path of the  checkpoint.pth that contains the model information.')
 
 parser.add_argument('--cat', action='store',
                     dest='cat_to_name',
@@ -41,18 +48,23 @@ parser.add_argument('--topk', action='store', type=int,
                     dest='topk',
                     help='Store the top k predictions wanted in the output.')
 
-parser.add_argument('--device', action='store',
+parser.add_argument('--gpu', action="store_true", default=False,
+                   help='Set the model to predicut using the GPU')
+
+'''parser.add_argument('--device', action='store',
                     dest='device',
-                    help='Store the device in which the prediction will run.')
+                    help='Store the device in which the prediction will run.')'''
 
 results = parser.parse_args()
 
-if results.checkpoint_name:
-    results.checkpoint_name = str(results.checkpoint_name)+'.pth'
+if results.gpu:
+    results.device = 'cuda'
+else:
+    results.device = 'cpu'
 
 print('\nCommand line selections:')
 print('image_path = {!r}'.format(results.image_path))
-print('checkpoint_name = {!r}'.format(results.checkpoint_name))
+print('checkpoint_name = {!r}'.format(results.checkpoint_path))
 print('cat_to_name = {!r}'.format(results.cat_to_name))
 print('topk = {!r}'.format(results.topk))
 print('device = {!r}'.format(results.device))
@@ -60,32 +72,20 @@ print('-')
 
 print('Command line warnings:')
 if results.image_path == None: print('No image parsed. You will have the chance to select an image as an input.')
-if results.checkpoint_name == None: print('No checkpoint name given. The default cehckpoint.pth will be used. ')
+if results.checkpoint_path == None: print('No checkpoint path given. The root cehckpoint.pth will be used. ')
 if results.cat_to_name == None: print('No --cat parsed. You will have the chance to input categories later.')
 if results.topk == None: print('No --topk parsed. You will have the chance to input the top k later.')
-if results.device == None: print('No --device parsed. You will have the chance to input the device later.')
+'''if results.device == None: print('No --device parsed. You will have the chance to input the device later.')'''
 print('-')
 
 # command line checks
-if results.device not in ('cuda', 'cpu'):
+'''if results.device not in ('cuda', 'cpu'):
     results.device = None
-    print('Wrong device input. Please use the command input to select desired device.')
+    print('Wrong device input. Please use the command input to select desired device.')'''
 if results.topk:
     if results.topk >= 34 or results.topk <=2:
         results.topk = None
         print('Wrong topk input. Please use the command input to select desired topk from 2 to 33.')
-
-
-# In[25]:
-
-
-'''# debug
-class results:
-    pass
-results.cat_to_name = None
-results.topk = 5
-results.device = 'cuda'
-# debug'''
 
 
 # # Helper Functions
@@ -188,6 +188,8 @@ def predict(image_path, model, topk=5, show=True):
     
     # prep the images to show
     actual_flower = image[:]
+    
+    # getting root of the image file
     image_path = ('\\'.join(image_path.split('\\')[:-2]))
     
     
@@ -212,8 +214,8 @@ def predict(image_path, model, topk=5, show=True):
     
     # showing pictures
     flower_ids = [tensoridx_to_catid[idx] for idx in tensoridx]
-    first_image_path = image_path + '\\' + flower_ids[0]
-    second_image_path = image_path + '\\' + flower_ids[1]
+    first_image_path = os.path.join(image_path, flower_ids[0])
+    second_image_path = os.path.join(image_path, flower_ids[1])
     
     # first image validation
     first_flower_filename = os.listdir(first_image_path)[0]
@@ -225,8 +227,8 @@ def predict(image_path, model, topk=5, show=True):
     if second_flower_filename == '.ipynb_checkpoints':
         second_flower_filename = os.listdir(second_image_path)[1]
         
-    first_image_path = first_image_path + '\\' + first_flower_filename
-    second_image_path = second_image_path + '\\' + second_flower_filename
+    first_image_path = os.path.join(first_image_path, first_flower_filename)
+    second_image_path = os.path.join(second_image_path, second_flower_filename)
     
     first_image = process_image(first_image_path)[0]
     second_image = process_image(second_image_path)[0]
@@ -386,7 +388,7 @@ def model_rebuilder(checkpoint_name):
         except:
             print('No checkpoint found. ')       
             
-model_load = model_rebuilder(results.checkpoint_name)
+model_load = model_rebuilder(results.checkpoint_path + '\\checkpoint.pth')
 
 
 # # Looking for Category to Name File
@@ -536,5 +538,5 @@ show_outputs()
 # In[ ]:
 
 
-# D:\GitHub\Flower_Classifier_Project\flower_data\valid\23\image_03416.jpg
+
 
